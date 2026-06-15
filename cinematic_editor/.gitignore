@@ -1,0 +1,40 @@
+# Flutter
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+*.iml
+*.ipr
+*.iws
+.idea/
+.vscode/
+
+# Assets (لا ترفع الملفات الثنائية الكبيرة)
+assets/models/*.tflite
+assets/fonts/*.ttf
+assets/fonts/*.otf
+
+# Backend
+backend/.env
+backend/__pycache__/
+backend/**/__pycache__/
+backend/*.egg-info/
+backend/venv/
+backend/.venv/
+
+# Android signing
+*.jks
+*.keystore
+android/key.properties
+
+# iOS
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+
+# Misc
+*.log
+.DS_Store
+Thumbs.db

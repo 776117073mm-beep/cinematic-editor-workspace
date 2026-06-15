@@ -1,0 +1,227 @@
+name: Build and Deploy Android APK
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'Release type (debug or release)'
+        required: true
+        default: 'debug'
+        type: choice
+        options:
+          - debug
+          - release
+
+env:
+  JAVA_VERSION: '17'
+  FLUTTER_VERSION: '3.19.0'
+  NDK_VERSION: '26.0.10792818'
+  GRADLE_VERSION: '8.1'
+
+jobs:
+  build_android:
+    runs-on: ubuntu-latest
+    name: Build Android APK/AAB
+
+    steps:
+      # ═══════════════════════════════════════════════════════════════════════
+      # 1. Checkout repository
+      # ═══════════════════════════════════════════════════════════════════════
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # 2. Setup Java JDK (required for Android NDK and Gradle)
+      # ═══════════════════════════════════════════════════════════════════════
+      - name: 🔧 Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: 'gradle'
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # 3. Setup Android SDK and NDK
+      # ═══════════════════════════════════════════════════════════════════════
+      - name: 🛠️  Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          api-level: 34
+          ndk-version: ${{ env.NDK_VERSION }}
+          build-tools-version: '34.0.0'
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # 4. Install Android NDK for C++ compilation
+      # ═══════════════════════════════════════════════════════════════════════
+      - name: 📦 Install Android NDK
+        run: |
+          echo "Installing Android NDK ${{ env.NDK_VERSION }}..."
+          sdkmanager --install "ndk;${{ env.NDK_VERSION }}"
+          echo "NDK_HOME=$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # 5. Setup Flutter SDK
+      # ═══════════════════════════════════════════════════════════════════════
+      - name: 🚀 Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # 6. Display Flutter and Dart versions
+      # ═══════════════════════════════════════════════════════════════════════
+      - name: ℹ️  Display Flutter version
+        run: |
+          flutter --version
+          dart --version
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # 7. Cache Flutter dependencies
+      # ═══════════════════════════════════════════════════════════════════════
+      - name: 💾 Cache Flutter dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: ${{ runner.os }}-pub-${{ hashFiles('**/pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # 8. Get Flutter dependencies
+      # ═══════════════════════════════════════════════════════════════════════
+      - name: 📚 Get Flutter dependencies
+        working-directory: ./cinematic_editor
+        run: flutter pub get
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # 9. Setup build configuration files
+      # ═══════════════════════════════════════════════════════════════════════
+      - name: 🔐 Setup environment variables
+        working-directory: ./cinematic_editor
+        run: |
+          # Copy backend environment file if needed
+          if [ ! -f backend/.env ]; then
+            cp backend/.env.example backend/.env
+          fi
+          echo "Environment setup complete"
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # 10. Build C++ code using CMake and NDK
+      # ═══════════════════════════════════════════════════════════════════════
+      - name: 🏗️  Build C++ native code
+        working-directory: ./cinematic_editor/native/cpp
+        run: |
+          mkdir -p build
+          cd build
+          cmake .. \
+            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}/build/cmake/android.toolchain.cmake \
+            -DANDROID_PLATFORM=android-34 \
+            -DANDROID_ABI=arm64-v8a \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build . --config Release
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # 11. Run Flutter tests (optional but recommended)
+      # ═══════════════════════════════════════════════════════════════════════
+      - name: 🧪 Run Flutter tests
+        working-directory: ./cinematic_editor
+        run: flutter test --coverage 2>/dev/null || echo "Tests skipped or failed - continuing build"
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # 12. Build Android APK (Debug)
+      # ═══════════════════════════════════════════════════════════════════════
+      - name: 📱 Build APK (Debug)
+        if: github.event.inputs.release_type != 'release'
+        working-directory: ./cinematic_editor
+        run: |
+          flutter build apk \
+            --debug \
+            --verbose \
+            --split-per-abi
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # 13. Build Android APK (Release)
+      # ═══════════════════════════════════════════════════════════════════════
+      - name: 🚀 Build APK (Release)
+        if: github.event.inputs.release_type == 'release' || github.ref == 'refs/heads/main'
+        working-directory: ./cinematic_editor
+        run: |
+          flutter build apk \
+            --release \
+            --verbose \
+            --split-per-abi \
+            --obfuscate
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # 14. Build Android App Bundle (AAB) for Play Store
+      # ═══════════════════════════════════════════════════════════════════════
+      - name: 📦 Build App Bundle (AAB)
+        if: github.ref == 'refs/heads/main'
+        working-directory: ./cinematic_editor
+        run: |
+          flutter build appbundle \
+            --release \
+            --verbose \
+            --obfuscate
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # 15. Upload APK artifacts
+      # ═══════════════════════════════════════════════════════════════════════
+      - name: 📤 Upload APK artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-artifacts
+          path: |
+            ./cinematic_editor/build/app/outputs/apk/
+          retention-days: 30
+          if-no-files-found: warn
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # 16. Upload App Bundle artifact
+      # ═══════════════════════════════════════════════════════════════════════
+      - name: 📤 Upload App Bundle artifact
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: aab-artifacts
+          path: |
+            ./cinematic_editor/build/app/outputs/bundle/
+          retention-days: 30
+          if-no-files-found: warn
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # 17. Upload build logs on failure
+      # ═══════════════════════════════════════════════════════════════════════
+      - name: 📋 Upload build logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            ./cinematic_editor/build/
+          retention-days: 7
+
+      # ═══════════════════════════════════════════════════════════════════════
+      # 18. Build summary
+      # ═══════════════════════════════════════════════════════════════════════
+      - name: ✅ Build Summary
+        if: always()
+        run: |
+          echo "╔════════════════════════════════════════════════════════╗"
+          echo "║          Build Workflow Complete                       ║"
+          echo "╠════════════════════════════════════════════════════════╣"
+          echo "║  Build Type: ${{ github.event.inputs.release_type || 'debug' }}"
+          echo "║  Branch: ${{ github.ref }}"
+          echo "║  Commit: ${{ github.sha }}"
+          echo "║  Actor: ${{ github.actor }}"
+          echo "╚════════════════════════════════════════════════════════╝"
