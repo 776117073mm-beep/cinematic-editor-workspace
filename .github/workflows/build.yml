@@ -29,6 +29,9 @@ jobs:
   build_android:
     runs-on: ubuntu-latest
     name: Build Android APK/AAB
+    defaults:
+      run:
+        working-directory: ./cinematic_editor
 
     steps:
       - name: 📥 Checkout code
@@ -75,11 +78,9 @@ jobs:
             ${{ runner.os }}-pub-
 
       - name: 📚 Get Flutter dependencies
-        working-directory: ./cinematic_editor
         run: flutter pub get
 
       - name: 🔐 Setup environment variables
-        working-directory: ./cinematic_editor
         run: |
           if [ ! -f backend/.env ]; then
             cp backend/.env.example backend/.env
@@ -99,12 +100,10 @@ jobs:
           cmake --build . --config Release
 
       - name: 🧪 Run Flutter tests
-        working-directory: ./cinematic_editor
         run: flutter test --coverage 2>/dev/null || echo "Tests skipped or failed - continuing build"
 
       - name: 📱 Build APK (Debug)
         if: github.event.inputs.release_type != 'release'
-        working-directory: ./cinematic_editor
         run: |
           flutter build apk \
             --debug \
@@ -113,7 +112,6 @@ jobs:
 
       - name: 🚀 Build APK (Release)
         if: github.event.inputs.release_type == 'release' || github.ref == 'refs/heads/main'
-        working-directory: ./cinematic_editor
         run: |
           flutter build apk \
             --release \
@@ -123,7 +121,6 @@ jobs:
 
       - name: 📦 Build App Bundle (AAB)
         if: github.ref == 'refs/heads/main'
-        working-directory: ./cinematic_editor
         run: |
           flutter build appbundle \
             --release \
@@ -136,7 +133,7 @@ jobs:
         with:
           name: apk-artifacts
           path: |
-            ./cinematic_editor/build/app/outputs/apk/
+            ./build/app/outputs/apk/
           retention-days: 30
           if-no-files-found: warn
 
@@ -146,7 +143,7 @@ jobs:
         with:
           name: aab-artifacts
           path: |
-            ./cinematic_editor/build/app/outputs/bundle/
+            ./build/app/outputs/bundle/
           retention-days: 30
           if-no-files-found: warn
 
@@ -156,7 +153,7 @@ jobs:
         with:
           name: build-logs
           path: |
-            ./cinematic_editor/build/
+            ./build/
           retention-days: 7
 
       - name: ✅ Build Summary
@@ -165,8 +162,8 @@ jobs:
           echo "╔════════════════════════════════════════════════════════╗"
           echo "║          Build Workflow Complete                       ║"
           echo "╠════════════════════════════════════════════════════════╣"
-          echo "║  Build Type: ${{ github.event.inputs.release_type || 'debug' }}"
-          echo "║  Branch: ${{ github.ref }}"
-          echo "║  Commit: ${{ github.sha }}"
-          echo "║  Actor: ${{ github.actor }}"
+          echo "║  Build Type: ${{ github.event.inputs.release_type || 'debug' }} ║"
+          echo "║  Branch: ${{ github.ref }} ║"
+          echo "║  Commit: ${{ github.sha }} ║"
+          echo "║  Actor: ${{ github.actor }} ║"
           echo "╚════════════════════════════════════════════════════════╝"
